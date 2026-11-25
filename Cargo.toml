@@ -1,0 +1,21 @@
+[workspace]
+resolver = "2"
+members = ["pxcii-core", "pxcii", "xtask"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Vladimir Saltykov"]
+repository = "https://github.com/vowatchka/pxcii"
+rust-version = "1.88"
+
+[workspace.dependencies]
+pxcii-core = { path = "pxcii-core" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
