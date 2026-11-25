@@ -1,0 +1,24 @@
+# Repo stores LF everywhere; checkout is LF on every OS.
+# This overrides core.autocrlf (which is true in the machine-wide git config).
+* text=auto eol=lf
+
+# Binary image formats used by fixtures and golden files.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.bmp binary
+*.tif binary
+*.tiff binary
+*.ico binary
+*.tga binary
+*.pbm binary
+*.pgm binary
+*.ppm binary
+*.pnm binary
+
+# Binary assets.
+*.ttf binary
+*.otf binary
+*.whl binary
