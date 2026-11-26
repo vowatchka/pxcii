@@ -1,5 +1,6 @@
-//! Repository maintenance tasks: fixture generation and source-purity checks.
+//! Repository maintenance tasks: fixture generation, source-purity checks and the conversion demo.
 
+mod convert_cmd;
 mod core_purity;
 mod gen_fixtures;
 mod workspace_paths;
@@ -15,10 +16,13 @@ fn run(args: &[String]) -> Result<(), String> {
     match args.split_first() {
         Some((cmd, rest)) if cmd == "gen-fixtures" => gen_fixtures::run(rest),
         Some((cmd, rest)) if cmd == "check-core-purity" => core_purity::run(rest),
+        Some((cmd, rest)) if cmd == "convert" => convert_cmd::run(rest),
         Some((cmd, _)) => Err(format!(
-            "unknown subcommand `{cmd}`\navailable: gen-fixtures, check-core-purity"
+            "unknown subcommand `{cmd}`\navailable: gen-fixtures, check-core-purity, convert"
         )),
-        None => Err("usage: cargo run -p xtask -- <gen-fixtures|check-core-purity>".to_owned()),
+        None => {
+            Err("usage: cargo run -p xtask -- <gen-fixtures|check-core-purity|convert>".to_owned())
+        }
     }
 }
 
