@@ -1,21 +1,32 @@
-//! Generates the committed fixtures: the same 16x16 gradient in all nine formats.
+//! Generates the committed fixtures: the same 16x16 gradient in all nine formats, plus the golden
+//! files written by the `pxcii-core` encoder.
 
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
-use pxcii_core::Format;
+use pxcii_core::{EncodeOptions, Format};
 
 use crate::workspace_paths;
 
 /// Edge length of every fixture, in pixels.
 const SIZE: u32 = 16;
 
+/// Formats whose encoder output is byte-for-byte reproducible and therefore has a golden file.
+pub(crate) const GOLDEN_FORMATS: [Format; 6] = [
+    Format::Png,
+    Format::Webp,
+    Format::Bmp,
+    Format::Tiff,
+    Format::Tga,
+    Format::Pnm,
+];
+
 /// Writes one file per supported format, by default into the committed `fixtures/`.
 ///
 /// `--out <directory>` redirects the output, which is how tests generate into `target/` without
 /// touching the committed files. Regeneration stays an explicit command for the same reason:
 /// a drifting codec must fail [`tests::committed_fixtures_match_the_generator`], not rewrite the
-/// reference inputs on the way.
+/// reference inputs on the way. Golden files go to the `golden/` subdirectory.
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
     write_all(&output_directory(args)?)
 }
@@ -37,12 +48,32 @@ fn write_all(directory: &Path) -> Result<(), String> {
         let path = directory.join(format!("gradient.{}", format.extension()));
         write_fixture(&path, &source, format)?;
     }
+    let golden = directory.join("golden");
+    std::fs::create_dir_all(&golden)
+        .map_err(|error| format!("cannot create {}: {error}", golden.display()))?;
+    for format in GOLDEN_FORMATS {
+        let path = golden.join(format!("gradient.{}", format.extension()));
+        let bytes = golden_bytes(&source, format)?;
+        std::fs::write(&path, bytes)
+            .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+    }
     println!(
-        "wrote {} fixtures of {SIZE}x{SIZE} to {}",
+        "wrote {} fixtures of {SIZE}x{SIZE} and {} golden files to {}",
         Format::ALL.len(),
+        GOLDEN_FORMATS.len(),
         directory.display()
     );
     Ok(())
+}
+
+/// Encodes the gradient with the core encoder, which is what the golden files pin down.
+pub(crate) fn golden_bytes(source: &image::RgbaImage, format: Format) -> Result<Vec<u8>, String> {
+    let (width, height) = source.dimensions();
+    let image = pxcii_core::RgbaImage::new(width, height, source.as_raw().clone())
+        .expect("an `image` buffer always matches its dimensions");
+    pxcii_core::encode(&image, format, &EncodeOptions::default())
+        .map(|encoded| encoded.bytes)
+        .map_err(|error| format!("cannot encode {format}: {error}"))
 }
 
 fn write_fixture(path: &Path, source: &image::RgbaImage, format: Format) -> Result<(), String> {
@@ -50,7 +81,8 @@ fn write_fixture(path: &Path, source: &image::RgbaImage, format: Format) -> Resu
     std::fs::write(path, bytes).map_err(|error| format!("cannot write {}: {error}", path.display()))
 }
 
-/// Encodes `source` with the `image` crate, which the core does not use for writing yet.
+/// Encodes `source` with the `image` crate: an encoder independent of the core, so the input
+/// fixtures do not move together with the code they are meant to test.
 fn encode(source: &image::RgbaImage, format: Format) -> Result<Vec<u8>, String> {
     let image_format = match format {
         Format::Png => image::ImageFormat::Png,
@@ -83,7 +115,7 @@ fn encode_ppm(source: &image::RgbaImage) -> Vec<u8> {
 }
 
 /// Builds the fixture: a colour gradient with a horizontal alpha ramp.
-fn gradient() -> image::RgbaImage {
+pub(crate) fn gradient() -> image::RgbaImage {
     image::RgbaImage::from_fn(SIZE, SIZE, |x, y| {
         image::Rgba([
             u8::try_from(x * 16).expect("x < 16"),
@@ -96,7 +128,9 @@ fn gradient() -> image::RgbaImage {
 
 #[cfg(test)]
 mod tests {
-    use super::{encode, gradient, output_directory, run, write_all, SIZE};
+    use super::{
+        encode, golden_bytes, gradient, output_directory, run, write_all, GOLDEN_FORMATS, SIZE,
+    };
     use pxcii_core::Format;
 
     #[test]
@@ -144,6 +178,29 @@ mod tests {
     }
 
     #[test]
+    fn committed_golden_files_match_the_core_encoder() {
+        let source = gradient();
+        for format in GOLDEN_FORMATS {
+            let name = format!("gradient.{}", format.extension());
+            let committed = std::fs::read(
+                crate::workspace_paths::fixtures_dir()
+                    .join("golden")
+                    .join(&name),
+            )
+            .expect("committed golden file");
+            let generated = golden_bytes(&source, format).expect("encoding succeeds");
+            assert_eq!(committed, generated, "golden/{name} is stale");
+        }
+    }
+
+    #[test]
+    fn empty_source_is_reported_by_the_golden_encoder() {
+        let error = golden_bytes(&image::RgbaImage::new(0, 0), Format::Png)
+            .expect_err("an image without pixels cannot be encoded");
+        assert!(error.contains("cannot encode PNG"), "{error}");
+    }
+
+    #[test]
     fn run_writes_into_an_explicit_directory() {
         let directory = crate::workspace_paths::workspace_root()
             .join("target")
@@ -154,6 +211,13 @@ mod tests {
         for format in Format::ALL {
             let name = format!("gradient.{}", format.extension());
             assert!(directory.join(&name).is_file(), "{name} is written");
+        }
+        for format in GOLDEN_FORMATS {
+            let name = format!("gradient.{}", format.extension());
+            assert!(
+                directory.join("golden").join(&name).is_file(),
+                "golden/{name}"
+            );
         }
     }
 
@@ -187,6 +251,29 @@ mod tests {
         let _ = std::fs::remove_dir_all(&directory);
         // A directory in place of the first fixture makes `fs::write` fail.
         std::fs::create_dir_all(directory.join("gradient.png")).expect("blocking directory");
+        let error = write_all(&directory).expect_err("a directory cannot be overwritten");
+        assert!(error.contains("cannot write"), "{error}");
+    }
+
+    #[test]
+    fn golden_directory_failure_is_reported() {
+        let directory = crate::workspace_paths::workspace_root()
+            .join("target")
+            .join("gen-fixtures-golden-blocked");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).expect("directory");
+        std::fs::write(directory.join("golden"), b"a file, not a directory").expect("write");
+        let error = write_all(&directory).expect_err("golden cannot be created");
+        assert!(error.contains("cannot create"), "{error}");
+    }
+
+    #[test]
+    fn golden_write_failure_is_reported() {
+        let directory = crate::workspace_paths::workspace_root()
+            .join("target")
+            .join("gen-fixtures-golden-write");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(directory.join("golden").join("gradient.png")).expect("blocker");
         let error = write_all(&directory).expect_err("a directory cannot be overwritten");
         assert!(error.contains("cannot write"), "{error}");
     }

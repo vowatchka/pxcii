@@ -3,6 +3,24 @@
 Формат: [Keep a Changelog](https://keepachangelog.com/ru/1.1.0/), версии по
 [Semantic Versioning](https://semver.org/lang/ru/).
 
+## [Не выпущено]
+
+Второй этап: запись всех девяти форматов и конвертация.
+
+### Добавлено
+
+- `pxcii_core::encode(&RgbaImage, Format, &EncodeOptions) -> Encoded`: PNG, JPEG (4:4:4,
+  качество 100 по умолчанию), WebP (lossless), GIF (256 цветов, Floyd–Steinberg), BMP, TIFF
+  (deflate), ICO, TGA, PNM (P6). Результат детерминирован.
+- `pxcii_core::Warning` (`IcoDownscaled`, `GifQuantized`, `JpegArtifacts`, `AlphaDropped`):
+  ограничения формата сообщаются в `Encoded::warnings`, а не замалчиваются.
+- `pxcii_core::convert(bytes, Format, &EncodeOptions) -> Converted`: декодирование и запись за
+  один вызов.
+- Box-фильтр на целых числах для уменьшения ICO до 256 px.
+- Зависимости `jpeg-encoder` и `color_quant` (оба pure Rust).
+- `xtask gen-fixtures` пишет golden-файлы `fixtures/golden/` для шести lossless-форматов;
+  `xtask convert <файл> --to <формат>` — демонстрация этапа.
+
 ## [0.1.0] — 2026-11-25
 
 Первый этап: фундамент репозитория и чтение всех девяти форматов.
