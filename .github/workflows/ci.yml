@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [main, stage-*]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The channel, profile and components come from rust-toolchain.toml; never pin here.
+      - name: Install the pinned toolchain
+        run: rustup show
+      - run: cargo fmt --all --check
+
+  clippy:
+    name: clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace --all-features
+
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      - name: Line coverage must stay at 100%
+        run: >
+          cargo llvm-cov --workspace --all-features --fail-under-lines 100
+          --lcov --output-path lcov.info
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lcov
+          path: lcov.info
+
+  msrv:
+    name: msrv (rust-version)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      # The declared minimum is the highest `rust-version` among the dependencies; it is checked
+      # explicitly because the pinned toolchain proves nothing about it.
+      - name: Build against the declared minimum
+        run: |
+          msrv="$(awk -F'"' '/^rust-version/ {print $2; exit}' Cargo.toml)"
+          echo "declared rust-version: $msrv"
+          rustup toolchain install "$msrv" --profile minimal
+          cargo +"$msrv" check --workspace --all-targets
+
+  purity:
+    name: core purity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo run -p xtask -- check-core-purity
+      - name: No C dependencies (-sys crates)
+        run: |
+          if cargo tree --workspace --edges normal,build | grep -- "-sys v"; then
+            echo "::error::a C dependency appeared in the tree; the project is pure Rust"
+            exit 1
+          fi
+          echo "no -sys crates in the dependency tree"
