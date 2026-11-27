@@ -5,6 +5,22 @@
 
 ## [Не выпущено]
 
+Третий этап: ядро рендера в псевдографику.
+
+### Добавлено
+
+- `pxcii_core::render_bytes(&[u8], &RenderOptions) -> Grid`: декодирование и раскладка
+  изображения по сетке символов.
+- `pxcii_core::RenderOptions` (`cols`, `color`, `ramp`, `dither`, `cell_aspect`),
+  `ColorMode` (`TrueColor`, `Ansi256`, `Mono`), `Ramp` (`Ascii`, `Blocks`, `Braille`,
+  `Custom`), `Dither` (`None`, `FloydSteinberg`, `Ordered`).
+- `pxcii_core::to_ansi(&Grid) -> String` и `pxcii_core::to_text(&Grid) -> String`.
+- Box-фильтр на `f32` для приведения к сетке, яркость через линейный свет без `powf`.
+- Braille: ячейка 2×4 точки, побитовая маска в кодпоинт U+2800…U+28FF.
+- Целочисленный Floyd–Steinberg и Bayer 8×8: вывод детерминирован на всех платформах.
+- Golden-гриды `fixtures/golden/grids/*.txt` для шести конфигураций, генерация —
+  `xtask gen-fixtures`; демо — `pxcii-core/examples/render.rs`.
+
 Второй этап: запись всех девяти форматов и конвертация.
 
 ### Добавлено

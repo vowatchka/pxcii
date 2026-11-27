@@ -10,6 +10,7 @@ mod error;
 mod format;
 mod image;
 mod pixels;
+mod render;
 mod resize;
 
 pub use convert::{convert, Converted};
@@ -18,3 +19,7 @@ pub use encode::{encode, EncodeOptions, Encoded, Warning};
 pub use error::PxciiError;
 pub use format::Format;
 pub use image::RgbaImage;
+pub use render::{
+    render_bytes, to_ansi, to_text, Cell, ColorMode, Dither, Grid, Ramp, RenderOptions, Rgb,
+    DEFAULT_CELL_ASPECT, DEFAULT_COLS,
+};

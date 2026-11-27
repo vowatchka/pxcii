@@ -289,7 +289,9 @@ xtask/        # генерация фикстур, проверка зависи
 2. `render/grid.rs`: `struct Cell { ch: char, fg: Rgb, bg: Option<Rgb> }`, `Grid { cols, rows, cells }`.
 3. `render/resize.rs`: приведение к сетке `cols × rows`, где
    `rows = round(cols * (h/w) * cell_aspect)`, фильтр box/Lanczos на `f32`.
-4. `render/luma.rs`: sRGB → linear (`f32`), яркость `0.2126R + 0.7152G + 0.0722B`, обратно в sRGB.
+4. `render/luma.rs`: перевод канала в линейный свет по гамме 2.0 (`(v/255)²`, обратно `sqrt`),
+   яркость `0.2126R + 0.7152G + 0.0722B`. Точная кривая sRGB требует `powf`, что запрещено ниже
+   («Риски»): серый ряд точен, на цветах отклонение ≤ 10/255, вывод детерминирован на всех платформах.
 5. `render/ramp.rs`: `Ascii "@%#*+=-:. "`, `Blocks "░▒▓█"`, `Braille` (2×4 субпикселя).
    Для Braille — отдельная ветка: одна ячейка = 8 отсчётов, битовая маска → `char`.
 6. `render/dither.rs`: Floyd–Steinberg (только целочисленный, ошибка в 1/16 долях) и

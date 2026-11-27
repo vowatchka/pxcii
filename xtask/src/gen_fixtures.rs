@@ -4,12 +4,15 @@
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
-use pxcii_core::{EncodeOptions, Format};
+use pxcii_core::{ColorMode, Dither, EncodeOptions, Format, Ramp, RenderOptions};
 
 use crate::workspace_paths;
 
 /// Edge length of every fixture, in pixels.
 const SIZE: u32 = 16;
+
+/// Width of every golden grid, in characters.
+const GRID_COLS: u32 = 8;
 
 /// Formats whose encoder output is byte-for-byte reproducible and therefore has a golden file.
 pub(crate) const GOLDEN_FORMATS: [Format; 6] = [
@@ -57,12 +60,83 @@ fn write_all(directory: &Path) -> Result<(), String> {
         std::fs::write(&path, bytes)
             .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
     }
+    write_grids(&golden_bytes(&source, Format::Png)?, &golden)?;
     println!(
-        "wrote {} fixtures of {SIZE}x{SIZE} and {} golden files to {}",
+        "wrote {} fixtures of {SIZE}x{SIZE}, {} golden files and {} golden grids to {}",
         Format::ALL.len(),
         GOLDEN_FORMATS.len(),
+        GRID_CONFIGURATIONS.len(),
         directory.display()
     );
+    Ok(())
+}
+
+/// Grid configurations with a golden file; `pxcii-core/src/render/tests.rs` verifies the same six.
+const GRID_CONFIGURATIONS: [(&str, ColorMode, Ramp, Dither, f32); 6] = [
+    (
+        "ascii-truecolor",
+        ColorMode::TrueColor,
+        Ramp::Ascii,
+        Dither::None,
+        0.5,
+    ),
+    (
+        "blocks-mono",
+        ColorMode::Mono,
+        Ramp::Blocks,
+        Dither::None,
+        0.5,
+    ),
+    (
+        "braille-mono",
+        ColorMode::Mono,
+        Ramp::Braille,
+        Dither::None,
+        0.5,
+    ),
+    (
+        "ascii-floyd-steinberg",
+        ColorMode::TrueColor,
+        Ramp::Ascii,
+        Dither::FloydSteinberg,
+        0.5,
+    ),
+    (
+        "ascii-ordered",
+        ColorMode::TrueColor,
+        Ramp::Ascii,
+        Dither::Ordered,
+        0.5,
+    ),
+    (
+        "ascii-aspect-1",
+        ColorMode::TrueColor,
+        Ramp::Ascii,
+        Dither::None,
+        1.0,
+    ),
+];
+
+/// Writes one ANSI grid per configuration into `golden/grids/`, rendering `png`.
+fn write_grids(png: &[u8], golden: &Path) -> Result<(), String> {
+    let directory = golden.join("grids");
+    std::fs::create_dir_all(&directory)
+        .map_err(|error| format!("cannot create {}: {error}", directory.display()))?;
+    for (name, color, ramp, dither, cell_aspect) in GRID_CONFIGURATIONS {
+        let options = RenderOptions {
+            cols: GRID_COLS,
+            color,
+            ramp,
+            dither,
+            cell_aspect,
+        };
+        let grid = pxcii_core::render_bytes(png, &options)
+            .map_err(|error| format!("cannot render {name}: {error}"))?;
+        let text = pxcii_core::to_ansi(&grid);
+        let path = directory.join(format!("{name}.txt"));
+        std::fs::write(&path, text)
+            .map_err(|error| format!("cannot write {}: {error}", path.display()))?;
+    }
     Ok(())
 }
 
@@ -129,7 +203,8 @@ pub(crate) fn gradient() -> image::RgbaImage {
 #[cfg(test)]
 mod tests {
     use super::{
-        encode, golden_bytes, gradient, output_directory, run, write_all, GOLDEN_FORMATS, SIZE,
+        encode, golden_bytes, gradient, output_directory, run, write_all, GOLDEN_FORMATS,
+        GRID_CONFIGURATIONS, SIZE,
     };
     use pxcii_core::Format;
 
@@ -219,6 +294,40 @@ mod tests {
                 "golden/{name}"
             );
         }
+        for (name, ..) in GRID_CONFIGURATIONS {
+            assert!(
+                directory
+                    .join("golden")
+                    .join("grids")
+                    .join(format!("{name}.txt"))
+                    .is_file(),
+                "golden/grids/{name}.txt"
+            );
+        }
+    }
+
+    #[test]
+    fn committed_golden_grids_match_the_renderer() {
+        let source = gradient();
+        let png = golden_bytes(&source, Format::Png).expect("the gradient encodes to PNG");
+        for (name, color, ramp, dither, cell_aspect) in GRID_CONFIGURATIONS {
+            let options = pxcii_core::RenderOptions {
+                cols: super::GRID_COLS,
+                color,
+                ramp,
+                dither,
+                cell_aspect,
+            };
+            let grid = pxcii_core::render_bytes(&png, &options).expect("the gradient renders");
+            let committed = std::fs::read(
+                crate::workspace_paths::fixtures_dir()
+                    .join("golden")
+                    .join("grids")
+                    .join(format!("{name}.txt")),
+            )
+            .expect("committed golden grid");
+            assert_eq!(committed, pxcii_core::to_ansi(&grid).into_bytes(), "{name}");
+        }
     }
 
     #[test]
@@ -276,6 +385,49 @@ mod tests {
         std::fs::create_dir_all(directory.join("golden").join("gradient.png")).expect("blocker");
         let error = write_all(&directory).expect_err("a directory cannot be overwritten");
         assert!(error.contains("cannot write"), "{error}");
+    }
+
+    #[test]
+    fn grid_write_failure_is_reported() {
+        let directory = crate::workspace_paths::workspace_root()
+            .join("target")
+            .join("gen-fixtures-grid-write");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(
+            directory
+                .join("golden")
+                .join("grids")
+                .join("ascii-truecolor.txt"),
+        )
+        .expect("blocker");
+        let error = write_all(&directory).expect_err("a directory cannot be overwritten");
+        assert!(error.contains("cannot write"), "{error}");
+    }
+
+    #[test]
+    fn grid_directory_failure_is_reported() {
+        let directory = crate::workspace_paths::workspace_root()
+            .join("target")
+            .join("gen-fixtures-grid-blocked");
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(directory.join("golden")).expect("directory");
+        std::fs::write(
+            directory.join("golden").join("grids"),
+            b"a file, not a directory",
+        )
+        .expect("write");
+        let error = write_all(&directory).expect_err("grids cannot be created");
+        assert!(error.contains("cannot create"), "{error}");
+    }
+
+    #[test]
+    fn unrenderable_grid_input_is_reported() {
+        let directory = crate::workspace_paths::workspace_root()
+            .join("target")
+            .join("gen-fixtures-grid-input");
+        let _ = std::fs::remove_dir_all(&directory);
+        let error = super::write_grids(b"not an image", &directory).expect_err("garbage renders");
+        assert!(error.contains("cannot render ascii-truecolor"), "{error}");
     }
 
     #[test]
